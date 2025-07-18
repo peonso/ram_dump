@@ -75,7 +75,7 @@
         .links a { color: var(--secondary-text-color); text-decoration: none; font-size: 13px; margin-right: 15px; }
         .task-actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; flex-shrink: 0; margin-left: 15px; }
         .task-actions button { font-size: 12px; padding: 4px 8px; width: 100px; text-align: center; }
-        .task.done { opacity: 0.7; }
+        .task.done { opacity: 0.7; cursor: default; }
         .task.done .task-title, .task.done .task-body { text-decoration: line-through; color: var(--secondary-text-color); }
         .children-container { padding-left: 20px; border-left: 2px solid var(--border-color); margin-left: 10px; padding-top: 10px; }
         .drop-indicator { height: 4px; background-color: var(--drop-indicator-color); border-radius: 2px; margin: 4px 0; }
@@ -134,266 +134,196 @@
         </div>
 
         <div id="editorView" class="hidden">
-            <!-- Editor HTML unchanged -->
+            <div class="editor-container">
+                <div class="editor-main">
+                    <h2 id="editorTitle">Create New Task</h2>
+                    <form id="taskEditorForm">
+                        <input type="hidden" id="editorTaskId">
+                        <input type="text" id="editorTaskTitle" class="form-input" placeholder="Task title..." required>
+                        <textarea id="editorTaskBody" class="form-input" placeholder="Add a body..."></textarea>
+                        <input type="text" id="editorTaskLinks" class="form-input" placeholder="Links (space separated)">
+                        <div class="editor-actions">
+                            <button type="submit" id="saveTaskBtn" class="primary-action">Save Task</button>
+                        </div>
+                    </form>
+                </div>
+                <aside class="editor-sidebar">
+                    <h3>Labels</h3>
+                    <div class="sidebar-section"><h4>Task Labels (drag to reorder)</h4><div id="currentTaskLabels" class="label-list"></div></div>
+                    <div class="sidebar-section"><h4>Available Labels</h4><div id="globalLabelList" class="label-list"></div></div>
+                    <div class="sidebar-section"><h4>Manage Labels</h4><form id="labelEditorForm"><input type="text" id="labelNameInput" class="form-input" placeholder="New label name" required><input type="color" id="labelColorInput" value="#f0f8ff"><button type="submit">Add / Update Label</button></form></div>
+                </aside>
+            </div>
         </div>
     </main>
 
     <div id="confirmationModal" class="modal-overlay hidden">
-        <!-- Confirmation Modal HTML unchanged -->
+        <div class="modal-content">
+            <h3 id="modalTitle">Are you sure?</h3>
+            <p id="modalMessage">This action cannot be undone.</p>
+            <div id="modalActions" class="modal-actions"></div>
+        </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- DOM ELEMENTS & CONSTANTS ---
+            // --------------------------------------------------------------------
+            // 1. DOM ELEMENT SELECTION & CONSTANTS
+            // --------------------------------------------------------------------
+            const DOM = {
+                listView: document.getElementById('listView'),
+                editorView: document.getElementById('editorView'),
+                doneView: document.getElementById('doneView'),
+                taskListContainer: document.getElementById('taskListContainer'),
+                doneListContainer: document.getElementById('doneListContainer'),
+                showCreateTaskViewBtn: document.getElementById('showCreateTaskViewBtn'),
+                backToListBtn: document.getElementById('backToListBtn'),
+                showDoneBtn: document.getElementById('showDoneBtn'),
+                taskEditorForm: document.getElementById('taskEditorForm'),
+                editorTaskId: document.getElementById('editorTaskId'),
+                editorTaskTitle: document.getElementById('editorTaskTitle'),
+                editorTaskBody: document.getElementById('editorTaskBody'),
+                editorTaskLinks: document.getElementById('editorTaskLinks'),
+                labelEditorForm: document.getElementById('labelEditorForm'),
+                labelNameInput: document.getElementById('labelNameInput'),
+                labelColorInput: document.getElementById('labelColorInput'),
+                currentTaskLabelsContainer: document.getElementById('currentTaskLabels'),
+                globalLabelListContainer: document.getElementById('globalLabelList'),
+                themeToggleBtn: document.getElementById('themeToggleBtn'),
+                importBtn: document.getElementById('importBtn'),
+                importFile: document.getElementById('importFile'),
+                exportBtn: document.getElementById('exportBtn'),
+                confirmationModal: document.getElementById('confirmationModal'),
+                modalTitle: document.getElementById('modalTitle'),
+                modalMessage: document.getElementById('modalMessage'),
+                modalActions: document.getElementById('modalActions')
+            };
             const BODY_PREVIEW_LIMIT = 500;
-            const listView = document.getElementById('listView'),
-                  editorView = document.getElementById('editorView'),
-                  doneView = document.getElementById('doneView'),
-                  taskListContainer = document.getElementById('taskListContainer'),
-                  doneListContainer = document.getElementById('doneListContainer'),
-                  showCreateTaskViewBtn = document.getElementById('showCreateTaskViewBtn'),
-                  backToListBtn = document.getElementById('backToListBtn'),
-                  showDoneBtn = document.getElementById('showDoneBtn'),
-                  taskEditorForm = document.getElementById('taskEditorForm'),
-                  editorTaskId = document.getElementById('editorTaskId'),
-                  editorTaskTitle = document.getElementById('editorTaskTitle'),
-                  editorTaskBody = document.getElementById('editorTaskBody'),
-                  editorTaskLinks = document.getElementById('editorTaskLinks');
-            // ... other elements ...
-            
-            // --- STATE MANAGEMENT ---
+
+            // --------------------------------------------------------------------
+            // 2. STATE MANAGEMENT
+            // --------------------------------------------------------------------
             let data = { tasks: [], labels: {} };
             let draggedItem = null, draggedLabel = null, fileToImport = null;
+
+            // --------------------------------------------------------------------
+            // 3. FUNCTION DEFINITIONS
+            // --------------------------------------------------------------------
             
-            // --- FUNCTION DEFINITIONS ---
-            
-            // --- RENDERING ---
-            function renderAll() {
-                renderTasks();
-                renderDoneTasks();
-                renderGlobalLabelList();
-            }
-
-            function renderTasks() {
-                taskListContainer.innerHTML = '';
-                const openTasks = data.tasks.filter(t => !t.status || t.status === 'open');
-                openTasks.forEach(task => taskListContainer.appendChild(createTaskElement(task)));
-            }
-
-            function renderDoneTasks() {
-                doneListContainer.innerHTML = '';
-                const doneTasks = data.tasks.filter(t => t.status === 'done');
-                doneTasks.forEach(task => doneListContainer.appendChild(createTaskElement(task)));
-            }
-            
-            function createTaskElement(task) {
-                const fullTaskContainer = document.createElement('div');
-                fullTaskContainer.className = 'task-wrapper';
-
-                const taskWrapper = document.createElement('div');
-                taskWrapper.className = 'task';
-                taskWrapper.dataset.id = task.id;
-
-                if (task.status === 'done') {
-                    taskWrapper.classList.add('done');
-                } else {
-                    taskWrapper.setAttribute('draggable', true);
-                    addDragListeners(taskWrapper);
+            // --- DATA & CORE LOGIC ---
+            function saveData() { localStorage.setItem('ramDumpData', JSON.stringify(data)); }
+            function loadInitialData() {
+                let parsedData;
+                try {
+                    parsedData = JSON.parse(localStorage.getItem('ramDumpData'));
+                } catch (e) {
+                    console.error("Could not parse localStorage data. It might be corrupted.", e);
                 }
-
-                if (task.labels.length > 0) {
-                    const firstLabel = data.labels[task.labels[0]];
-                    if (firstLabel) taskWrapper.style.borderLeftColor = firstLabel.color;
-                }
-
-                const taskContent = document.createElement('div');
-                taskContent.className = 'task-content';
-                // ... (labels, title rendering) ...
-                
-                if (task.body && task.body.length > BODY_PREVIEW_LIMIT) {
-                    // ... (Show more/less logic unchanged) ...
-                }
-
-                // Action buttons
-                const taskActions = document.createElement('div');
-                taskActions.className = 'task-actions';
-
-                if (task.status === 'done') {
-                    const reopenBtn = document.createElement('button');
-                    reopenBtn.textContent = 'Re-open';
-                    reopenBtn.onclick = (e) => { e.stopPropagation(); handleReopenTask(task.id); };
-                    taskActions.appendChild(reopenBtn);
-                } else {
-                    const concludeBtn = document.createElement('button');
-                    concludeBtn.textContent = 'Conclude';
-                    concludeBtn.onclick = (e) => { e.stopPropagation(); handleConcludeTask(task.id); };
-                    taskActions.appendChild(concludeBtn);
-                    
-                    const editBtn = document.createElement('button');
-                    editBtn.textContent = 'Edit';
-                    editBtn.onclick = (e) => { e.stopPropagation(); showEditorView(task.id); };
-                    taskActions.appendChild(editBtn);
-                }
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'danger-action';
-                deleteBtn.textContent = 'Delete';
-                deleteBtn.onclick = (e) => { e.stopPropagation(); handleDeleteTask(task.id); };
-                taskActions.appendChild(deleteBtn);
-
-                taskWrapper.appendChild(taskContent);
-                taskWrapper.appendChild(taskActions);
-                fullTaskContainer.appendChild(taskWrapper);
-
-                if (task.children && task.children.length > 0) {
-                    const childrenContainer = document.createElement('div');
-                    childrenContainer.className = 'children-container';
-                    const childTasksToRender = task.children.filter(child => {
-                        return task.status === 'done' ? child.status === 'done' : child.status !== 'done';
-                    });
-                    childTasksToRender.forEach(childTask => childrenContainer.appendChild(createTaskElement(childTask)));
-                    fullTaskContainer.appendChild(childrenContainer);
-                }
-                
-                return fullTaskContainer;
+                data = sanitizeData(parsedData || { tasks: [], labels: { "bug": { name: "bug", color: "#d73a4a" }, "feature": { name: "feature", color: "#0075ca" }}});
+                saveData();
             }
-
-            // --- TASK ACTIONS ---
-            function handleDeleteTask(taskId) {
-                showConfirmation('Delete Task?', 'Are you sure you want to permanently delete this task and all its sub-tasks?',
-                    [{ text: 'Cancel' }, { text: 'Delete', class: 'danger-action', action: () => {
-                        const { parent } = findTaskAndParent(taskId, data.tasks);
-                        const array = parent ? parent.children : data.tasks;
-                        const index = array.findIndex(t => t.id === taskId);
-                        if (index > -1) array.splice(index, 1);
-                        saveData();
-                        renderAll();
-                    }}]
-                );
-            }
-
-            function handleConcludeTask(taskId) {
-                const { task } = findTaskAndParent(taskId, data.tasks);
-                if (task) {
-                    function setStatusRecursive(t, status) {
-                        t.status = status;
-                        if (t.children) t.children.forEach(child => setStatusRecursive(child, status));
-                    }
-                    setStatusRecursive(task, 'done');
-                    saveData();
-                    renderAll();
-                }
-            }
-
-            function handleReopenTask(taskId) {
-                const { task } = findTaskAndParent(taskId, data.tasks);
-                if (task) {
-                    function setStatusRecursive(t, status) {
-                        t.status = status;
-                        if (t.children) t.children.forEach(child => setStatusRecursive(child, status));
-                    }
-                    setStatusRecursive(task, 'open');
-                    saveData();
-                    renderAll();
-                }
-            }
+            function findTaskAndParent(taskId, taskArray = data.tasks, parent = null) { for (const task of taskArray) { if (task.id === taskId) return { task, parent }; if (task.children && task.children.length > 0) { const found = findTaskAndParent(taskId, task.children, task); if (found.task) return found; } } return { task: null, parent: null }; }
+            function isDescendant(childId, parentTask) { if (!parentTask || !parentTask.children) return false; return parentTask.children.some(c => c.id === childId || isDescendant(childId, c)); }
+            function sanitizeData(d) { if (!d || !Array.isArray(d.tasks)) return { tasks: [], labels: {} }; const o = [], ids = new Set(); function c(ts) { if (!ts) return; ts.forEach(t => { if (t && t.id) { ids.add(t.id); c(t.children); }});} c(d.tasks); function s(t) { if (!t.children) return; for (let i = t.children.length - 1; i >= 0; i--) { const c = t.children[i]; if (!c || c.id === t.id || !ids.has(c.id)) { if (c) o.push(c); t.children.splice(i, 1); } else { s(c); } } } d.tasks.forEach(t => { if (t) s(t); }); if (o.length > 0) d.tasks.push(...o); return d; }
 
             // --- VIEW MANAGEMENT ---
             function showListView() {
-                editorView.classList.add('hidden');
-                doneView.classList.add('hidden');
-                listView.classList.remove('hidden');
-                backToListBtn.classList.add('hidden');
-                showDoneBtn.classList.remove('hidden');
-                showCreateTaskViewBtn.classList.remove('hidden');
+                DOM.editorView.classList.add('hidden');
+                DOM.doneView.classList.add('hidden');
+                DOM.listView.classList.remove('hidden');
+                DOM.backToListBtn.classList.add('hidden');
+                DOM.showDoneBtn.classList.remove('hidden');
+                DOM.showCreateTaskViewBtn.classList.remove('hidden');
+                renderTasks(); // <<< THIS LINE WAS MISSING. IT IS THE FIX.
             }
-
+            function showDoneView() { DOM.listView.classList.add('hidden'); DOM.editorView.classList.add('hidden'); DOM.doneView.classList.remove('hidden'); DOM.backToListBtn.classList.remove('hidden'); DOM.showDoneBtn.classList.add('hidden'); DOM.showCreateTaskViewBtn.classList.add('hidden'); }
             function showEditorView(taskId = null) {
-                listView.classList.add('hidden');
-                doneView.classList.add('hidden');
-                editorView.classList.remove('hidden');
-                backToListBtn.classList.remove('hidden');
-                showDoneBtn.classList.add('hidden');
-                showCreateTaskViewBtn.classList.add('hidden');
-                // ... (rest of function is the same)
+                DOM.taskEditorForm.reset(); DOM.currentTaskLabelsContainer.innerHTML = '';
+                if (taskId) {
+                    const { task } = findTaskAndParent(taskId);
+                    if (!task) return;
+                    DOM.editorTaskId.value = task.id;
+                    DOM.editorTaskTitle.value = task.title;
+                    DOM.editorTaskBody.value = task.body || '';
+                    DOM.editorTaskLinks.value = (task.links || []).join(' ');
+                    task.labels.forEach(addLabelToCurrentTask);
+                } else {
+                    DOM.editorTaskId.value = '';
+                }
+                renderGlobalLabelList();
+                DOM.listView.classList.add('hidden'); DOM.doneView.classList.add('hidden'); DOM.editorView.classList.remove('hidden'); DOM.backToListBtn.classList.remove('hidden'); DOM.showDoneBtn.classList.add('hidden'); DOM.showCreateTaskViewBtn.classList.add('hidden');
             }
 
-            function showDoneView() {
-                listView.classList.add('hidden');
-                editorView.classList.add('hidden');
-                doneView.classList.remove('hidden');
-                backToListBtn.classList.remove('hidden');
-                showDoneBtn.classList.add('hidden');
-                showCreateTaskViewBtn.classList.add('hidden');
+            // --- TASK ACTIONS ---
+            function handleDeleteTask(taskId) { showConfirmation('Delete Task?', 'This will permanently delete this task and all its sub-tasks.', [{ text: 'Cancel' }, { text: 'Delete', class: 'danger-action', action: () => { const { parent } = findTaskAndParent(taskId); const arr = parent ? parent.children : data.tasks; const i = arr.findIndex(t => t.id === taskId); if (i > -1) arr.splice(i, 1); saveData(); renderAll(); }}]); }
+            function setTaskStatusRecursive(task, status) { task.status = status; if (task.children) task.children.forEach(c => setTaskStatusRecursive(c, status)); }
+            function handleConcludeTask(taskId) { const { task } = findTaskAndParent(taskId); if (task) { setTaskStatusRecursive(task, 'done'); saveData(); renderAll(); } }
+            function handleReopenTask(taskId) { const { task } = findTaskAndParent(taskId); if (task) { setTaskStatusRecursive(task, 'open'); saveData(); renderAll(); } }
+            
+            // --- RENDERING ---
+            function renderAll() { renderTasks(); renderDoneTasks(); renderGlobalLabelList(); }
+            function renderTasks() { DOM.taskListContainer.innerHTML = ''; data.tasks.filter(t => !t.status || t.status === 'open').forEach(t => DOM.taskListContainer.appendChild(createTaskElement(t))); }
+            function renderDoneTasks() { DOM.doneListContainer.innerHTML = ''; data.tasks.filter(t => t.status === 'done').forEach(t => DOM.doneListContainer.appendChild(createTaskElement(t))); }
+            function createTaskElement(task) {
+                const fullTaskContainer = document.createElement('div'); fullTaskContainer.className = 'task-wrapper';
+                const taskWrapper = document.createElement('div'); taskWrapper.className = 'task'; taskWrapper.dataset.id = task.id;
+                const taskContent = document.createElement('div'); taskContent.className = 'task-content';
+                const taskActions = document.createElement('div'); taskActions.className = 'task-actions';
+                if (task.status === 'done') { taskWrapper.classList.add('done'); } 
+                else { taskWrapper.setAttribute('draggable', true); addDragListeners(taskWrapper); }
+                if (task.labels.length > 0) { const firstLabel = data.labels[task.labels[0]]; if (firstLabel) taskWrapper.style.borderLeftColor = firstLabel.color; }
+                const labelsDiv = document.createElement('div'); labelsDiv.className = 'labels'; task.labels.forEach(name => { const l = data.labels[name]; if (l) labelsDiv.appendChild(createLabelElement(l, false)); }); taskContent.appendChild(labelsDiv);
+                const title = document.createElement('p'); title.className = 'task-title'; title.textContent = task.title; taskContent.appendChild(title);
+                if (task.body) { const body = document.createElement('p'); body.className = 'task-body'; body.textContent = task.body; taskContent.appendChild(body); if (task.body.length > BODY_PREVIEW_LIMIT) { body.classList.add('collapsed'); const btn = document.createElement('button'); btn.className = 'toggle-body-btn'; btn.textContent = 'Show more...'; btn.onclick = (e) => { e.stopPropagation(); body.classList.toggle('collapsed'); body.classList.toggle('expanded'); btn.textContent = body.classList.contains('expanded') ? 'Show less' : 'Show more...'; }; taskContent.appendChild(btn); } }
+                if (task.links && task.links.length > 0) { const linksDiv = document.createElement('div'); linksDiv.className = 'links'; task.links.forEach(url => { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = getHostname(url); linksDiv.appendChild(a); }); taskContent.appendChild(linksDiv); }
+                if (task.status === 'done') { const reopenBtn = document.createElement('button'); reopenBtn.textContent = 'Re-open'; reopenBtn.onclick = (e) => { e.stopPropagation(); handleReopenTask(task.id); }; taskActions.appendChild(reopenBtn); }
+                else { const concludeBtn = document.createElement('button'); concludeBtn.textContent = 'Conclude'; concludeBtn.onclick = (e) => { e.stopPropagation(); handleConcludeTask(task.id); }; const editBtn = document.createElement('button'); editBtn.textContent = 'Edit'; editBtn.onclick = (e) => { e.stopPropagation(); showEditorView(task.id); }; taskActions.appendChild(concludeBtn); taskActions.appendChild(editBtn); }
+                const deleteBtn = document.createElement('button'); deleteBtn.className = 'danger-action'; deleteBtn.textContent = 'Delete'; deleteBtn.onclick = (e) => { e.stopPropagation(); handleDeleteTask(task.id); }; taskActions.appendChild(deleteBtn);
+                taskWrapper.appendChild(taskContent); taskWrapper.appendChild(taskActions); fullTaskContainer.appendChild(taskWrapper);
+                if (task.children && task.children.length > 0) { const childrenContainer = document.createElement('div'); childrenContainer.className = 'children-container'; const childrenToRender = task.children.filter(c => (c.status || 'open') === (task.status || 'open')); childrenToRender.forEach(c => childrenContainer.appendChild(createTaskElement(c))); if(childrenToRender.length > 0) fullTaskContainer.appendChild(childrenContainer); }
+                return fullTaskContainer;
             }
 
-            // --- INITIALIZATION & EVENT LISTENERS ---
+            // --- ALL OTHER HELPER FUNCTIONS ---
+            function addDragListeners(element) { element.addEventListener('dragstart', handleDragStart); element.addEventListener('dragend', handleDragEnd); }
+            function handleDragStart(e) { if (e.target.classList.contains('task')) { draggedItem = e.target; e.dataTransfer.setData('text/plain', draggedItem.dataset.id); setTimeout(() => draggedItem.classList.add('dragging'), 0); } else { e.preventDefault(); } }
+            function handleDragEnd() { if (draggedItem) draggedItem.classList.remove('dragging'); draggedItem = null; document.querySelectorAll('.drop-indicator').forEach(el => el.remove()); }
+            function handleDragOver(e) { e.preventDefault(); document.querySelectorAll('.drop-indicator').forEach(el => el.remove()); const dropTarget = e.target.closest('.task'); if (!dropTarget || !draggedItem) return; const draggedId = draggedItem.dataset.id; const dropTargetId = dropTarget.dataset.id; if (draggedId === dropTargetId) return; const { task: draggedTask } = findTaskAndParent(draggedId); if (draggedTask && isDescendant(dropTargetId, draggedTask)) return; const isNestedDrop = e.clientX > dropTarget.getBoundingClientRect().left + 50; const indicator = document.createElement('div'); indicator.className = 'drop-indicator'; if (isNestedDrop) { let fullTaskContainer = dropTarget.closest('.task-wrapper'); let childrenContainer = fullTaskContainer.querySelector('.children-container'); if (!childrenContainer) { childrenContainer = document.createElement('div'); childrenContainer.className = 'children-container'; fullTaskContainer.appendChild(childrenContainer); } childrenContainer.appendChild(indicator); } else { const afterElement = getDragAfterElement(e.target.closest('.children-container, #taskListContainer'), e.clientY, '.task-wrapper'); const parent = dropTarget.closest('.task-wrapper').parentElement; if (afterElement) { parent.insertBefore(indicator, afterElement); } else { parent.appendChild(indicator); } } }
+            function handleDrop(e) { e.preventDefault(); const draggedId = e.dataTransfer.getData('text/plain'); const dropIndicator = document.querySelector('.drop-indicator'); if (!draggedId || !dropIndicator) return; const { task: movedTask, parent: sourceParent } = findTaskAndParent(draggedId); if (!movedTask) return; const parentContainer = dropIndicator.parentNode; if (parentContainer.classList.contains('children-container')) { const parentId = parentContainer.parentElement.querySelector('.task').dataset.id; if (parentId === draggedId || isDescendant(parentId, movedTask)) return; } const sourceArray = sourceParent ? sourceParent.children : data.tasks; const taskIndex = sourceArray.findIndex(t => t.id === draggedId); if (taskIndex > -1) sourceArray.splice(taskIndex, 1); if (parentContainer.classList.contains('children-container')) { const parentId = parentContainer.parentElement.querySelector('.task').dataset.id; const { task: newParent } = findTaskAndParent(parentId); if (newParent) { if (!newParent.children) newParent.children = []; newParent.children.push(movedTask); } } else { const nextSibling = dropIndicator.nextElementSibling; const parentElement = parentContainer.closest('.children-container'); const targetArray = parentElement ? findTaskAndParent(parentElement.closest('.task-wrapper').querySelector('.task').dataset.id).task.children : data.tasks; if (nextSibling) { const nextSiblingId = nextSibling.querySelector('.task').dataset.id; const insertIndex = targetArray.findIndex(t => t.id === nextSiblingId); targetArray.splice(insertIndex, 0, movedTask); } else { targetArray.push(movedTask); } } saveData(); renderAll(); }
+            function showConfirmation(title, message, actions) { DOM.modalTitle.textContent = title; DOM.modalMessage.textContent = message; DOM.modalActions.innerHTML = ''; actions.forEach(actionInfo => { const button = document.createElement('button'); button.textContent = actionInfo.text; button.className = actionInfo.class || ''; button.onclick = () => { if (actionInfo.action) actionInfo.action(); DOM.confirmationModal.classList.add('hidden'); }; DOM.modalActions.appendChild(button); }); DOM.confirmationModal.classList.remove('hidden'); }
+            function createLabelElement(labelData, isDraggable) { const labelSpan = document.createElement('span'); labelSpan.className = 'label'; labelSpan.textContent = labelData.name; labelSpan.dataset.name = labelData.name; labelSpan.style.backgroundColor = labelData.color; labelSpan.style.color = getContrastColor(labelData.color); if (isDraggable) { labelSpan.draggable = true; labelSpan.addEventListener('dragstart', (e) => { draggedLabel = e.target; e.target.classList.add('dragging'); }); labelSpan.addEventListener('dragend', (e) => { e.target.classList.remove('dragging'); draggedLabel = null; }); } return labelSpan; }
+            function addLabelToCurrentTask(labelName) { if (Array.from(DOM.currentTaskLabelsContainer.children).some(el => el.dataset.name === labelName)) return; const labelData = data.labels[labelName]; if (labelData) { const labelEl = createLabelElement(labelData, true); labelEl.onclick = () => { labelEl.remove(); }; DOM.currentTaskLabelsContainer.appendChild(labelEl); } }
+            function renderGlobalLabelList() { DOM.globalLabelListContainer.innerHTML = ''; Object.values(data.labels).forEach(labelData => { const container = document.createElement('div'); container.className = 'label-container'; const labelEl = createLabelElement(labelData, false); labelEl.onclick = () => addLabelToCurrentTask(labelData.name); labelEl.oncontextmenu = (e) => { e.preventDefault(); DOM.labelNameInput.value = labelData.name; DOM.labelColorInput.value = labelData.color; }; const deleteBtn = document.createElement('button'); deleteBtn.className = 'delete-label-btn'; deleteBtn.innerHTML = '×'; deleteBtn.onclick = () => handleDeleteLabel(labelData.name); container.appendChild(labelEl); container.appendChild(deleteBtn); DOM.globalLabelListContainer.appendChild(container); });}
+            function handleDeleteLabel(labelName) { showConfirmation('Delete Label?', `Are you sure you want to permanently delete the "${labelName}" label?`, [{ text: 'Cancel' }, { text: 'Delete', class: 'danger-action', action: () => { delete data.labels[labelName]; function remove(tasks) { tasks.forEach(t => { t.labels = t.labels.filter(l => l !== labelName); if (t.children) remove(t.children); }); } remove(data.tasks); saveData(); renderAll(); }}]); }
+            function proceedWithImport() { if (!fileToImport) return; const reader = new FileReader(); reader.onload = (e) => { try { const importedData = JSON.parse(e.target.result); if (importedData && Array.isArray(importedData.tasks)) { data = sanitizeData(importedData); saveData(); renderAll(); showListView(); } else { alert('Invalid file format.'); } } catch (error) { alert('Error reading or parsing file.'); } fileToImport = null; }; reader.readAsText(fileToImport); }
+            function getContrastColor(hexcolor) { if (!hexcolor) return '#000000'; hexcolor = hexcolor.replace("#", ""); const r = parseInt(hexcolor.substr(0, 2), 16), g = parseInt(hexcolor.substr(2, 2), 16), b = parseInt(hexcolor.substr(4, 2), 16); const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000; return (yiq >= 128) ? '#0d1117' : '#ffffff'; }
+            function getHostname(url) { try { return new URL(url).hostname; } catch (_) { return url; } }
+            function getDragAfterElement(container, y, selector) { const draggableElements = [...container.querySelectorAll(`${selector}:not(.dragging)`)]; return draggableElements.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
+            function setTheme(themeName) { document.documentElement.setAttribute('data-theme', themeName); localStorage.setItem('ramDumpTheme', themeName); }
+            
+            // --------------------------------------------------------------------
+            // 4. INITIALIZATION & EVENT LISTENERS
+            // --------------------------------------------------------------------
             function initialize() {
-                // ... (loadInitialData, setTheme, renderAll)
-                
-                // Add new event listeners
-                showDoneBtn.addEventListener('click', showDoneView);
-
-                // Modify existing listeners
-                taskEditorForm.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    // ...
-                    const taskData = {
-                        id: id || 'task-' + Date.now(),
-                        status: 'open', // Add default status
-                        title, body,
-                        links: editorTaskLinks.value.trim().split(/\s+/).filter(Boolean), // Use robust split
-                        labels, children
-                    };
-                    if (id) {
-                        // ... update logic
-                    } else {
-                        data.tasks.unshift(taskData); // Add to top
-                    }
-                    saveData();
-                    showListView();
-                });
+                loadInitialData();
+                setTheme(localStorage.getItem('ramDumpTheme') || 'light');
+                renderAll();
+                DOM.backToListBtn.addEventListener('click', showListView);
+                DOM.showDoneBtn.addEventListener('click', showDoneView);
+                DOM.showCreateTaskViewBtn.addEventListener('click', () => showEditorView());
+                DOM.themeToggleBtn.addEventListener('click', () => { const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'; setTheme(newTheme); });
+                DOM.taskEditorForm.addEventListener('submit', (e) => { e.preventDefault(); const id = DOM.editorTaskId.value; const title = DOM.editorTaskTitle.value.trim(); if (!title) return; const taskData = { id: id || 'task-' + Date.now(), status: 'open', title, body: DOM.editorTaskBody.value.trim(), links: DOM.editorTaskLinks.value.trim().split(/\s+/).filter(Boolean), labels: Array.from(DOM.currentTaskLabelsContainer.children).map(el => el.dataset.name), children: id ? findTaskAndParent(id).task.children : [] }; if (id) { const { parent } = findTaskAndParent(id); const arr = parent ? parent.children : data.tasks; const i = arr.findIndex(t => t.id === id); if (i > -1) arr[i] = taskData; } else { data.tasks.unshift(taskData); } saveData(); showListView(); });
+                DOM.labelEditorForm.addEventListener('submit', (e) => { e.preventDefault(); const name = DOM.labelNameInput.value.trim(); if (!name) return; data.labels[name] = { name, color: DOM.labelColorInput.value }; saveData(); renderGlobalLabelList(); DOM.labelEditorForm.reset(); });
+                DOM.exportBtn.addEventListener('click', () => { const d = JSON.stringify(data, null, 2); const b = new Blob([d], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'ram_dump_data.json'; a.click(); URL.revokeObjectURL(u); });
+                DOM.importBtn.addEventListener('click', () => DOM.importFile.click());
+                DOM.importFile.addEventListener('change', (event) => { fileToImport = event.target.files[0]; if (!fileToImport) return; showConfirmation('Import Data?', 'This will overwrite all current data. You might want to export first.', [{ text: 'Cancel' }, { text: 'Export & Continue', class: '', action: () => { DOM.exportBtn.click(); proceedWithImport(); } }, { text: 'Overwrite', class: 'danger-action', action: proceedWithImport }]); event.target.value = ''; });
+                DOM.taskListContainer.addEventListener('dragover', handleDragOver);
+                DOM.taskListContainer.addEventListener('drop', handleDrop);
+                DOM.currentTaskLabelsContainer.addEventListener('dragover', e => e.preventDefault());
+                DOM.currentTaskLabelsContainer.addEventListener('drop', (e) => { e.preventDefault(); if (!draggedLabel) return; const afterElement = getDragAfterElement(DOM.currentTaskLabelsContainer, e.clientY, '.label'); if (afterElement == null) DOM.currentTaskLabelsContainer.appendChild(draggedLabel); else DOM.currentTaskLabelsContainer.insertBefore(draggedLabel, afterElement); });
             }
 
-            // Abridged/Placeholder functions for brevity (the full code is below)
-            let showConfirmation, createLabelElement, addLabelToCurrentTask, renderGlobalLabelList, proceedWithImport;
-            function findTaskAndParent(taskId, taskArray, parent = null) { /* Unchanged */ }
-            function addDragListeners(element) { /* Unchanged */ }
-
-            // --- PASTE THE FULL SCRIPT HERE ---
-            // The following is the complete, final script with all functions fully defined.
-            // This structure just helps visualize where the changes were made.
-            const fullScript = () => {
-                // All the functions from the previous version, defined and working together.
-                const DOM = {listView, editorView, doneView, taskListContainer, doneListContainer, showCreateTaskViewBtn, backToListBtn, showDoneBtn, taskEditorForm, editorTaskId, editorTaskTitle, editorTaskBody, editorTaskLinks /* ...and all others... */};
-                let state = {data, draggedItem, draggedLabel, fileToImport};
-                // ... all function definitions from the previous working script, plus the new ones above ...
-                // This self-contained approach ensures no functions are missing.
-            };
-
-            // This is the actual, full script to run
-            (function() {
-                const DOM = {listView, editorView, doneView, taskListContainer, doneListContainer, showCreateTaskViewBtn, backToListBtn, showDoneBtn, taskEditorForm, editorTaskId, editorTaskTitle, editorTaskBody, editorTaskLinks, labelEditorForm, labelNameInput, labelColorInput, currentTaskLabelsContainer, globalLabelListContainer, themeToggleBtn, importBtn, importFile, exportBtn, confirmationModal, modalTitle, modalMessage, modalActions };
-                function findTaskAndParent(taskId, taskArray, parent = null) { for (const task of taskArray) { if (task.id === taskId) return { task, parent }; if (task.children && task.children.length > 0) { const found = findTaskAndParent(taskId, task.children, task); if (found.task) return found; } } return { task: null, parent: null }; }
-                function isDescendant(childId, parentTask) { if (!parentTask || !parentTask.children || parentTask.children.length === 0) return false; return parentTask.children.some(child => child.id === childId || isDescendant(childId, child)); }
-                function sanitizeData(dataToSanitize) { if (!dataToSanitize || !Array.isArray(dataToSanitize.tasks)) return { tasks: [], labels: {} }; const orphans = []; const allTaskIds = new Set(); function collectIds(tasks) { tasks.forEach(task => { if (task && task.id) { allTaskIds.add(task.id); if (task.children) collectIds(task.children); }});} collectIds(dataToSanitize.tasks); function sanitizeChildren(task) { if (!task.children || task.children.length === 0) return; for (let i = task.children.length - 1; i >= 0; i--) { const child = task.children[i]; if (!child || child.id === task.id || !allTaskIds.has(child.id)) { if (child) orphans.push(child); task.children.splice(i, 1); } else { sanitizeChildren(child); } } } dataToSanitize.tasks.forEach(task => { if (task) sanitizeChildren(task); }); if (orphans.length > 0) { console.warn(`Recovered ${orphans.length} orphaned tasks.`, orphans); dataToSanitize.tasks.push(...orphans); } return dataToSanitize; }
-                function setTheme(themeName) { document.documentElement.setAttribute('data-theme', themeName); localStorage.setItem('ramDumpTheme', themeName); }
-                function getContrastColor(hexcolor) { if (!hexcolor) return '#000000'; hexcolor = hexcolor.replace("#", ""); const r = parseInt(hexcolor.substr(0, 2), 16), g = parseInt(hexcolor.substr(2, 2), 16), b = parseInt(hexcolor.substr(4, 2), 16); const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000; return (yiq >= 128) ? '#0d1117' : '#ffffff'; }
-                function getHostname(url) { try { return new URL(url).hostname; } catch (_) { return url; } }
-                function getDragAfterElement(container, y, selector) { const draggableElements = [...container.querySelectorAll(`${selector}:not(.dragging)`)]; return draggableElements.reduce((closest, child) => { const box = child.getBoundingClientRect(); const offset = y - box.top - box.height / 2; if (offset < 0 && offset > closest.offset) return { offset: offset, element: child }; else return closest; }, { offset: Number.NEGATIVE_INFINITY }).element; }
-                function addDragListeners(element) { element.addEventListener('dragstart', handleDragStart); element.addEventListener('dragend', handleDragEnd); }
-                function handleDragStart(e) { if (e.target.classList.contains('task')) { draggedItem = e.target; e.dataTransfer.setData('text/plain', draggedItem.dataset.id); setTimeout(() => draggedItem.classList.add('dragging'), 0); } else { e.preventDefault(); } }
-                function handleDragEnd() { if (draggedItem) draggedItem.classList.remove('dragging'); draggedItem = null; document.querySelectorAll('.drop-indicator').forEach(el => el.remove()); }
-                function handleDragOver(e) { e.preventDefault(); document.querySelectorAll('.drop-indicator').forEach(el => el.remove()); const dropTarget = e.target.closest('.task'); if (!dropTarget || !draggedItem) return; const draggedId = draggedItem.dataset.id; const dropTargetId = dropTarget.dataset.id; if (draggedId === dropTargetId) return; const { task: draggedTask } = findTaskAndParent(draggedId, data.tasks); if (draggedTask && isDescendant(dropTargetId, draggedTask)) return; const isNestedDrop = e.clientX > dropTarget.getBoundingClientRect().left + 50; const indicator = document.createElement('div'); indicator.className = 'drop-indicator'; if (isNestedDrop) { let fullTaskContainer = dropTarget.closest('.task-wrapper'); let childrenContainer = fullTaskContainer.querySelector('.children-container'); if (!childrenContainer) { childrenContainer = document.createElement('div'); childrenContainer.className = 'children-container'; fullTaskContainer.appendChild(childrenContainer); } childrenContainer.appendChild(indicator); } else { const afterElement = getDragAfterElement(e.target.closest('.children-container, #taskListContainer'), e.clientY, '.task-wrapper'); const parent = dropTarget.closest('.task-wrapper').parentElement; if (afterElement) { parent.insertBefore(indicator, afterElement); } else { parent.appendChild(indicator); } } }
-                function handleDrop(e) { e.preventDefault(); const draggedId = e.dataTransfer.getData('text/plain'); const dropIndicator = document.querySelector('.drop-indicator'); if (!draggedId || !dropIndicator) return; const { task: movedTask, parent: sourceParent } = findTaskAndParent(draggedId, data.tasks); if (!movedTask) return; const parentContainer = dropIndicator.parentNode; if (parentContainer.classList.contains('children-container')) { const parentId = parentContainer.parentElement.querySelector('.task').dataset.id; if (parentId === draggedId || isDescendant(parentId, movedTask)) return; } const sourceArray = sourceParent ? sourceParent.children : data.tasks; const taskIndex = sourceArray.findIndex(t => t.id === draggedId); if (taskIndex > -1) sourceArray.splice(taskIndex, 1); if (parentContainer.classList.contains('children-container')) { const parentId = parentContainer.parentElement.querySelector('.task').dataset.id; const { task: newParent } = findTaskAndParent(parentId, data.tasks); if (newParent) { if (!newParent.children) newParent.children = []; newParent.children.push(movedTask); } } else { const nextSibling = dropIndicator.nextElementSibling; const parentElement = parentContainer.closest('.children-container'); const targetArray = parentElement ? findTaskAndParent(parentElement.closest('.task-wrapper').querySelector('.task').dataset.id, data.tasks).task.children : data.tasks; if (nextSibling) { const nextSiblingId = nextSibling.querySelector('.task').dataset.id; const insertIndex = targetArray.findIndex(t => t.id === nextSiblingId); targetArray.splice(insertIndex, 0, movedTask); } else { targetArray.push(movedTask); } } saveData(); renderAll(); }
-                showConfirmation = function(title, message, actions) { DOM.modalTitle.textContent = title; DOM.modalMessage.textContent = message; DOM.modalActions.innerHTML = ''; actions.forEach(actionInfo => { const button = document.createElement('button'); button.textContent = actionInfo.text; button.className = actionInfo.class || ''; button.onclick = () => { if (actionInfo.action) actionInfo.action(); DOM.confirmationModal.classList.add('hidden'); }; DOM.modalActions.appendChild(button); }); DOM.confirmationModal.classList.remove('hidden'); }
-                createLabelElement = function(labelData, isDraggable) { const labelSpan = document.createElement('span'); labelSpan.className = 'label'; labelSpan.textContent = labelData.name; labelSpan.dataset.name = labelData.name; labelSpan.style.backgroundColor = labelData.color; labelSpan.style.color = getContrastColor(labelData.color); if (isDraggable) { labelSpan.draggable = true; labelSpan.addEventListener('dragstart', (e) => { draggedLabel = e.target; e.target.classList.add('dragging'); }); labelSpan.addEventListener('dragend', (e) => { e.target.classList.remove('dragging'); draggedLabel = null; }); } return labelSpan; }
-                addLabelToCurrentTask = function(labelName) { if (Array.from(DOM.currentTaskLabelsContainer.children).some(el => el.dataset.name === labelName)) return; const labelData = data.labels[labelName]; if (labelData) { const labelEl = createLabelElement(labelData, true); labelEl.onclick = () => { labelEl.remove(); }; DOM.currentTaskLabelsContainer.appendChild(labelEl); } }
-                renderGlobalLabelList = function() { DOM.globalLabelListContainer.innerHTML = ''; Object.values(data.labels).forEach(labelData => { const container = document.createElement('div'); container.className = 'label-container'; const labelEl = createLabelElement(labelData, false); labelEl.onclick = () => addLabelToCurrentTask(labelData.name); labelEl.oncontextmenu = (e) => { e.preventDefault(); DOM.labelNameInput.value = labelData.name; DOM.labelColorInput.value = labelData.color; }; const deleteBtn = document.createElement('button'); deleteBtn.className = 'delete-label-btn'; deleteBtn.innerHTML = '×'; deleteBtn.onclick = () => handleDeleteLabel(labelData.name); container.appendChild(labelEl); container.appendChild(deleteBtn); DOM.globalLabelListContainer.appendChild(container); });}
-                handleDeleteLabel = function(labelName) { showConfirmation('Delete Label?', `Are you sure you want to permanently delete the "${labelName}" label? It will be removed from all tasks.`, [{ text: 'Cancel' }, { text: 'Delete', class: 'danger-action', action: () => { delete data.labels[labelName]; function removeLabelFromTasks(tasks) { tasks.forEach(task => { task.labels = task.labels.filter(l => l !== labelName); if (task.children) removeLabelFromTasks(task.children); }); } removeLabelFromTasks(data.tasks); saveData(); renderAll(); }}]); }
-                proceedWithImport = function() { if (!fileToImport) return; const reader = new FileReader(); reader.onload = (e) => { try { const importedData = JSON.parse(e.target.result); if (importedData && Array.isArray(importedData.tasks) && typeof importedData.labels === 'object') { data = sanitizeData(importedData); saveData(); renderAll(); showListView(); } else { alert('Invalid file format.'); } } catch (error) { alert('Error reading or parsing file.'); console.error(error); } fileToImport = null; }; reader.readAsText(fileToImport); }
-                initialize();
-            })();
+            initialize();
         });
     </script>
 </body>
